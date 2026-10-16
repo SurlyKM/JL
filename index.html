@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src https://aerodatabox.p.rapidapi.com; manifest-src 'self'; worker-src 'self'; font-src 'none'; object-src 'none'; frame-src 'none'; media-src 'none'; form-action 'none'; base-uri 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="color-scheme" content="light dark">
+<meta name="format-detection" content="telephone=no, date=no, address=no, email=no">
+<meta name="theme-color" content="#0f1420">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Jet lag">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-180.png">
+<link rel="stylesheet" href="app.css">
+<title>Jet lag</title>
+</head>
+<body>
+<header class="bar">
+  <span class="brand">Jet lag</span>
+  <nav class="tabs" aria-label="Pages">
+    <button type="button" class="tab" id="tabSetup" data-page="setup">Setup</button>
+    <button type="button" class="tab" id="tabPlan" data-page="plan">Plan</button>
+  </nav>
+</header>
+
+<main>
+  <!-- SETUP PAGE -->
+  <section id="setup" class="page" hidden>
+    <h1>Your trip</h1>
+    <div id="legs"></div>
+    <button type="button" class="ghost wide" id="addLeg">+ Add connecting flight</button>
+
+    <h2>Your usual sleep</h2>
+    <div class="card row2">
+      <label class="field"><span>Wake</span><input id="wake" type="time"></label>
+      <label class="field"><span>Bed</span><input id="bed" type="time"></label>
+    </div>
+
+    <details class="card">
+      <summary>Flight lookup key</summary>
+      <p class="hint">Lookup uses AeroDataBox (via RapidAPI). Paste your own key. It stays on this phone and is only sent to that service when you tap Look up.</p>
+      <label class="field"><span>RapidAPI key</span>
+        <input id="apiKey" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Paste key"></label>
+      <button type="button" class="ghost" id="forgetKey">Forget key</button>
+    </details>
+
+    <details class="card">
+      <summary>Fine tuning</summary>
+      <div class="row2">
+        <label class="field"><span>Max shift before flying (h)</span><input id="maxPreH" type="number" inputmode="decimal" min="0" max="8" step="0.5"></label>
+        <label class="field"><span>Shift per day before flying (h)</span><input id="preRate" type="number" inputmode="decimal" min="0.25" max="2" step="0.25"></label>
+      </div>
+    </details>
+
+    <p id="setupMsg" class="msg" hidden></p>
+    <button type="button" class="primary wide" id="go">See my plan</button>
+    <button type="button" class="link wide" id="clearAll">Clear everything on this phone</button>
+  </section>
+
+  <!-- PLAN PAGE -->
+  <section id="plan" class="page" hidden>
+    <div id="planHead"></div>
+    <div id="planToday"></div>
+    <div id="planDays"></div>
+  </section>
+</main>
+
+<template id="legTpl">
+  <div class="card leg">
+    <div class="leghead"><span class="legtitle"></span><button type="button" class="link rm">Remove</button></div>
+    <div class="row2">
+      <label class="field"><span>Flight number</span><input class="flight" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="QF11" maxlength="8"></label>
+      <label class="field"><span>Departure date</span><input class="date" type="date"></label>
+    </div>
+    <button type="button" class="ghost wide lookup">Look up flight</button>
+    <p class="msg lookmsg" hidden></p>
+    <div class="row2">
+      <label class="field"><span>From</span><input class="from code" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="3" placeholder="SYD"><small class="where fromWhere"></small></label>
+      <label class="field"><span>Departs (local)</span><input class="dep" type="time"></label>
+    </div>
+    <div class="row2">
+      <label class="field"><span>To</span><input class="to code" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" maxlength="3" placeholder="LAX"><small class="where toWhere"></small></label>
+      <label class="field"><span>Arrives (local)</span><input class="arr" type="time"></label>
+    </div>
+    <label class="field"><span>Arrival date (local)</span><input class="arrDate" type="date"></label>
+  </div>
+</template>
+
+<script src="airports.js"></script>
+<script src="logic.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
