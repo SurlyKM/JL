@@ -2,7 +2,7 @@
 /* Offline support: caches the app's own files so it opens with no signal.
    It never touches requests to other sites (the flight lookup goes straight to the network).
    Bump VERSION whenever any app file changes so phones pick up the new files. */
-const VERSION = 'jl-v1';
+const VERSION = 'jl-v2';
 const FILES = ['./', 'index.html', 'app.css', 'app.js', 'logic.js', 'airports.js',
   'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
 

@@ -91,3 +91,9 @@ button{font:inherit;touch-action:manipulation}
 .fl dt{color:var(--mute);font-size:.88rem}
 .fl dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums}
 .foot{font-size:.8rem;color:var(--mute);text-align:center;margin-top:18px}
+
+.styles{display:grid;gap:8px;padding:8px}
+.style{display:block;text-align:left;width:100%;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:12px;padding:12px;min-height:48px}
+.style b{display:block}
+.style span{display:block;font-size:.84rem;color:var(--mute);margin-top:2px}
+.style[aria-pressed="true"]{border:2px solid var(--accent);background:var(--today)}

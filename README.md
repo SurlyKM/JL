@@ -2,6 +2,8 @@
 
 A small offline web app that shifts your body clock before and after a long flight. Enter your flight, and it tells you when to wake, when to sleep and when to get light each day until you are on local time.
 
+Nothing about any trip is built in. A new visitor starts at a blank setup, and each person's setup is saved only in their own browser.
+
 Two pages:
 
 - **Setup**: your flight (look it up by number, or type the airports and times) and your usual wake and bed times.
@@ -34,11 +36,20 @@ The key is only sent to `aerodatabox.p.rapidapi.com`, and only when you tap **Lo
 - **Offline files only.** The service worker caches the app's own files and never touches requests to other sites.
 - Your key is visible to anyone with your unlocked phone. Use a free-tier key and rotate it if needed.
 
+## Plan styles
+
+Pick one on the Setup page. Gradual is the default.
+
+- **Gradual**: shifts up to 4 h before you fly (about 45 min a day), then eases your sleep in after landing at the rate your body clock can follow. More work before the trip, smoother after.
+- **Local time on landing** (opt in): a short pre-shift (2 h at 1 h a day), sleep during destination night-time on the plane, then local bed and wake times from landing day. Light windows still follow where your body clock is, so they start later in the day and move earlier as you adapt. Easier to live with; you may feel a bit off for the first day or two.
+
+Switching style fills in its pre-flight settings under Fine tuning. You can still change them.
+
 ## How the plan works
 
 - **Your clock's low point.** Your body temperature bottoms out about 3 hours before your usual wake time (CBTmin). Light after this point moves your clock earlier; light before it moves it later.
 - **Direction.** Sydney to Los Angeles is 18 hours apart, which your clock can cover as 6 hours earlier or 18 hours later. The app picks earlier when that needs 8 hours or less, because large advances can make the clock drift the wrong way.
-- **Before you fly.** It moves wake and bed earlier (or later) by about 45 minutes a day, up to 4 hours, finishing on departure day. Both are adjustable under Fine tuning.
+- **Before you fly.** It moves wake and bed earlier (or later) each day, finishing on departure day. The amount depends on the plan style and is adjustable under Fine tuning.
 - **After landing.** It assumes about 1 hour per day earlier, or 1.5 hours per day later, until you are on local time.
 - **On the plane.** Set your watch to destination time as you board. Sleep and shade times are based on where your body clock should be, not on the cabin schedule.
 
@@ -71,8 +82,13 @@ The key is only sent to `aerodatabox.p.rapidapi.com`, and only when you tap **Lo
 | --- | --- |
 | `index.html` | Page shell, security policy, both pages |
 | `app.js` | Setup, lookup, plan page, saving |
-| `logic.js` | Circadian maths (pure functions, no network) |
+| `logic.js` | Circadian maths, both plan styles (pure functions, no network) |
 | `airports.js` | Offline airport code to time zone table |
 | `app.css` | Mobile-first styles, light and dark |
 | `sw.js` | Offline cache. Bump `VERSION` after any change |
 | `manifest.webmanifest`, `icon-*.png` | Home screen app details |
+
+## Saved data
+
+- Stored under `jl.state.v1` (trip and settings) and `jl.apikey.v1` (lookup key) in the browser's local storage.
+- On load, saved values are checked: valid ones are kept, missing ones (for example settings added in a newer version) are filled from defaults, and malformed ones are ignored. An update never wipes a saved trip.

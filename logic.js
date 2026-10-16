@@ -200,26 +200,55 @@ const JL = (() => {
     const doneJ = j => (j === 0 ? P : Math.min(T, P + j * postRate));
     const rawWake = j => wake0 + dir * (T - doneJ(j)) * 60;
     const J = Math.ceil((T - P) / postRate - 1e-9) + 1;
+    // mode 'local': sleep on destination clock from landing day. The body clock still
+    // catches up at the normal rate, so light windows follow the body clock, not the wall clock.
+    const local = inp.mode === 'local';
     for (let j = 0; j <= J; j++) {
       const done = doneJ(j), doneNext = doneJ(j + 1);
       const [wake, wakeNext] = norm(rawWake(j), rawWake(j + 1));
-      const ev = events(dir, wake, wakeNext, o);
       const stillShifting = doneNext > done + 1e-9;
+      let ev;
+      if (!local) {
+        ev = events(dir, wake, wakeNext, o);
+      } else {
+        ev = events(dir, wake0, wake0, o);           // local sleep, caffeine, meals
+        // Where the body clock is today, expressed on today's local clock (within +/- 12 h of local wake).
+        const off = j => mod(rawWake(j) - wake0 + 720, DAY) - 720;
+        const body = events(dir, wake0 + off(j), wake0 + off(j + 1) + (off(j + 1) - off(j) > 720 ? -DAY : off(j + 1) - off(j) < -720 ? DAY : 0), o);
+        ev.cbt = body.cbt;
+        ev.mel = body.mel;
+        if (dir > 0) {
+          // Light after the body's low point advances it; light before it would push the wrong way.
+          const s = Math.max(body.cbt, wake0), e = body.cbt + 360;
+          ev.seek = s < e ? [s, e] : null;
+          ev.avoidUntil = body.cbt > wake0 ? body.cbt : null;
+        } else {
+          // Delay: light in the hours before the body's low point, kept inside local waking hours.
+          const s = Math.max(body.seek[0], wake0), e = Math.min(body.seek[1], ev.bed);
+          ev.seek = s < e ? [s, e] : null;
+          ev.dim = body.dim[1] > wake0 ? [wake0, body.dim[1]] : null;
+        }
+      }
       if (!stillShifting) ev.mel = null;
       let phase = stillShifting ? 'shift' : 'adapted';
       if (j === 0) {
         phase = 'arrive';
         ev.arriveMin = tA;
         if (dir > 0) {
-          const s = Math.max(tA, ev.cbt), e = ev.cbt + 360;
+          const s = Math.max(tA, ev.seek ? ev.seek[0] : ev.cbt), e = ev.cbt + 360;
           ev.seek = s < e ? [s, e] : null;
           ev.seekMissed = s >= e;
           ev.avoidUntil = tA < ev.cbt ? ev.cbt : null;
+        } else if (ev.seek) {
+          // Nothing can happen before you land: trim windows to start at landing.
+          const s = Math.max(tA, ev.seek[0]);
+          ev.seek = s < ev.seek[1] ? [s, ev.seek[1]] : null;
+          if (ev.dim) ev.dim = ev.dim[1] > tA ? [Math.max(tA, ev.dim[0]), ev.dim[1]] : null;
         }
         ev.wake = null;
         ev.bodyWake = wake;
       }
-      rows.push(Object.assign({ kind: 'post', phase, dn: arrDn + j, j, done }, ev));
+      rows.push(Object.assign({ kind: 'post', phase, dn: arrDn + j, j, done, local }, ev));
     }
 
     /* flight day: where your body clock will be, in real (UTC) time */
@@ -231,7 +260,7 @@ const JL = (() => {
       const start = wallToUtc(inp.homeTz, d.y, d.m, d.d, bedTod);
       const end = start + o.sleepDur * MS_MIN;
       const oS = Math.max(start, depUtc), oE = Math.min(end, arrUtc);
-      if (oE - oS >= 20 * MS_MIN) nights.push({ start, end, oS, oE });
+      if (!local && oE - oS >= 20 * MS_MIN) nights.push({ start, end, oS, oE });
       const cbt = end - o.cbtOff * MS_MIN;
       if (cbt >= depUtc - 4 * MS_H && cbt <= arrUtc + 12 * MS_H) {
         const c = { utc: cbt, inFlight: cbt >= depUtc && cbt <= arrUtc };
@@ -248,7 +277,17 @@ const JL = (() => {
       }
     }
 
-    return Object.assign(base, { P, rate, postRate, rows, bodyWakeHome, nights, cbts,
+    if (local) {
+      for (let k = -2; k <= 1; k++) {
+        const d = fromDn(arrDn + k);
+        const start = wallToUtc(inp.destTz, d.y, d.m, d.d, bed0);
+        const end = start + o.sleepDur * MS_MIN;
+        const oS = Math.max(start, depUtc), oE = Math.min(end, arrUtc);
+        if (oE - oS >= 20 * MS_MIN) nights.push({ start, end, oS, oE });
+      }
+    }
+
+    return Object.assign(base, { P, rate, postRate, rows, local, bodyWakeHome, nights, cbts,
       adaptedDn: (rows.find(r => r.kind === 'post' && r.phase === 'adapted') || {}).dn });
   }
 

@@ -62,21 +62,51 @@ const fmtDn = n => new Intl.DateTimeFormat('en-AU', { weekday: 'short', day: 'nu
 const clock = (tz, utc) => new Intl.DateTimeFormat('en-AU', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: tz }).format(new Date(utc));
 const dayClock = (tz, utc) => new Intl.DateTimeFormat('en-AU', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: tz }).format(new Date(utc));
 const offStr = (tz, utc) => { const m = JL.offsetMin(tz, utc); return 'UTC' + (m < 0 ? '-' : '+') + f2(Math.floor(Math.abs(m) / 60)) + (m % 60 ? ':' + f2(Math.abs(m) % 60) : ''); };
-const todayIso = () => { const d = new Date(); return d.getFullYear() + '-' + f2(d.getMonth() + 1) + '-' + f2(d.getDate()); };
 
 /* ---------- state ---------- */
-const DEFAULT_STATE = {
-  legs: [{ flight: '', date: '2026-10-23', from: 'SYD', dep: '10:00', to: 'LAX', arr: '06:00', arrDate: '2026-10-23' }],
-  wake: '07:00', bed: '23:00', maxPreH: '4', preRate: '0.75'
+// Plan styles. Picking a style fills in its pre-flight settings; you can still edit them.
+const STYLES = {
+  gradual: { maxPreH: '4', preRate: '0.75' },
+  local: { maxPreH: '2', preRate: '1' }
+};
+// Neutral defaults: no trip is built in, so a new user always starts at a blank setup.
+const BLANK_LEG = () => ({ flight: '', date: '', from: '', dep: '', to: '', arr: '', arrDate: '' });
+const freshState = () => ({ legs: [BLANK_LEG()], wake: '07:00', bed: '23:00', mode: 'gradual', ...STYLES.gradual });
+
+// Load saved data defensively: keep every valid saved value, fill anything missing from the
+// defaults (e.g. fields added in a later version), and drop anything malformed. Never throws.
+const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+// Each saved leg field must look like what the form produces, otherwise it's dropped.
+const FIELD_OK = {
+  flight: v => /^[A-Z0-9 ]{0,8}$/.test(v),
+  from: v => /^[A-Z]{0,3}$/.test(v), to: v => /^[A-Z]{0,3}$/.test(v),
+  date: v => v === '' || !!JL.parseDate(v), arrDate: v => v === '' || !!JL.parseDate(v),
+  dep: v => v === '' || JL.parseTime(v) !== null, arr: v => v === '' || JL.parseTime(v) !== null
 };
 function loadState() {
-  try {
-    const s = JSON.parse(store.get(KEY_STATE));
-    if (s && Array.isArray(s.legs) && s.legs.length) return s;
-  } catch (e) { /* fall through */ }
-  return null;
+  let s;
+  try { s = JSON.parse(store.get(KEY_STATE)); } catch (e) { return null; }
+  if (!s || typeof s !== 'object' || !Array.isArray(s.legs) || !s.legs.length) return null;
+  const d = freshState();
+  const okTime = v => (JL.parseTime(v) !== null ? v : null);
+  const okNum = (v, lo, hi) => { const n = parseFloat(v); return Number.isFinite(n) && n >= lo && n <= hi ? String(n) : null; };
+  const mode = s.mode === 'local' || s.mode === 'gradual' ? s.mode : 'gradual';
+  const out = {
+    legs: s.legs.filter(L => L && typeof L === 'object').slice(0, 6).map(L => {
+      const o = BLANK_LEG();
+      for (const k of Object.keys(o)) { const v = str(L[k], 12); if (FIELD_OK[k](v)) o[k] = v; }
+      return o;
+    }).filter(L => Object.values(L).some(Boolean)),
+    wake: okTime(s.wake) || d.wake,
+    bed: okTime(s.bed) || d.bed,
+    mode,
+    maxPreH: okNum(s.maxPreH, 0, 12) || STYLES[mode].maxPreH,
+    preRate: okNum(s.preRate, 0.25, 2) || STYLES[mode].preRate
+  };
+  if (!out.legs.length) out.legs = [BLANK_LEG()];
+  return out;
 }
-let state = loadState() || JSON.parse(JSON.stringify(DEFAULT_STATE));
+let state = loadState() || freshState();
 const save = () => store.set(KEY_STATE, JSON.stringify(state));
 
 /* ---------- trip from legs ---------- */
@@ -85,6 +115,7 @@ function tripFromLegs(legs) {
   const out = [];
   for (let i = 0; i < legs.length; i++) {
     const L = legs[i], n = legs.length > 1 ? 'Flight ' + (i + 1) + ': ' : '';
+    if (!L.from || !L.to) return { error: n + 'add the from and to airport codes, or look up the flight.' };
     const A = airport(L.from), B = airport(L.to);
     if (!A) return { error: n + 'unknown departure airport code.' };
     if (!B) return { error: n + 'unknown arrival airport code.' };
@@ -111,7 +142,7 @@ function buildPlan() {
     depDate: depLocal.year + '-' + depLocal.month + '-' + depLocal.day,
     depTime: depLocal.hour + ':' + depLocal.minute,
     flightH: (t.arrUtc - t.depUtc) / JL.MS_H,
-    wake: state.wake, bed: state.bed, direction: 'auto',
+    wake: state.wake, bed: state.bed, direction: 'auto', mode: state.mode,
     maxPreH: state.maxPreH, preRate: state.preRate, caffH: 8, cbtOffH: 3,
     todayDn: null, nowUtc: Date.now()
   });
@@ -222,7 +253,18 @@ async function lookup(node, leg) {
   }
 }
 
+function showStyle() {
+  for (const b of document.querySelectorAll('.style')) b.setAttribute('aria-pressed', String(b.dataset.mode === state.mode));
+}
 function initSetup() {
+  for (const b of document.querySelectorAll('.style')) b.addEventListener('click', () => {
+    if (state.mode === b.dataset.mode) return;  // no change, keep whatever is typed
+    state.mode = b.dataset.mode;
+    Object.assign(state, STYLES[state.mode]);    // switch pre-flight preset to match the style
+    for (const id of ['maxPreH', 'preRate']) $(id).value = state[id];
+    save(); showStyle();
+  });
+  showStyle();
   for (const id of ['wake', 'bed', 'maxPreH', 'preRate']) {
     $(id).value = state[id];
     $(id).addEventListener('input', () => { state[id] = $(id).value; save(); });
@@ -236,22 +278,21 @@ function initSetup() {
   $('forgetKey').addEventListener('click', () => { store.del(KEY_API); $('apiKey').value = ''; });
   $('addLeg').addEventListener('click', () => {
     const prev = state.legs[state.legs.length - 1];
-    state.legs.push({ flight: '', date: prev.arrDate || prev.date, from: prev.to, dep: '', to: '', arr: '', arrDate: prev.arrDate || prev.date });
+    state.legs.push(Object.assign(BLANK_LEG(), { date: prev.arrDate || prev.date || '', from: prev.to || '', arrDate: prev.arrDate || prev.date || '' }));
     save(); renderLegs();
   });
   $('go').addEventListener('click', () => {
     const p = buildPlan();
-    if (p.error) { $('setupMsg').hidden = false; $('setupMsg').textContent = p.error; return; }
+    if (p.error) { $('setupMsg').hidden = false; $('setupMsg').textContent = p.error.charAt(0).toUpperCase() + p.error.slice(1); return; }
     $('setupMsg').hidden = true;
     go('plan');
   });
   $('clearAll').addEventListener('click', () => {
     store.del(KEY_STATE); store.del(KEY_API);
-    state = JSON.parse(JSON.stringify(DEFAULT_STATE));
-    state.legs = [{ flight: '', date: todayIso(), from: '', dep: '', to: '', arr: '', arrDate: todayIso() }];
+    state = freshState();
     $('apiKey').value = '';
     for (const id of ['wake', 'bed', 'maxPreH', 'preRate']) $(id).value = state[id];
-    renderLegs();
+    showStyle(); renderLegs();
   });
   renderLegs();
 }
@@ -259,18 +300,18 @@ function initSetup() {
 /* =====================================================================
    PLAN PAGE
    ===================================================================== */
-const PHASE = { hold: 'Usual', shift: 'Shifting', depart: 'Fly', arrive: 'Land', adapted: 'On local time' };
+const PHASE = { hold: 'Usual', shift: 'Shifting', depart: 'Fly', arrive: 'Land', adapted: 'Adapted' };
 
 // One line telling you when to get (and avoid) light.
 function lightLine(r, p) {
-  if (r.phase === 'arrive') {
-    if (p.dir > 0) {
-      if (r.seekMissed) return 'Keep light low today';
-      return (r.avoidUntil != null ? 'Shades on until ' + hm(r.avoidUntil) + ', then light ' : 'Light ') + rng(r.seek);
-    }
-  }
-  if (p.dir > 0) return 'Light ' + (r.seek ? rng(r.seek) : '') + (r.dim ? ', dim after ' + hm(r.dim[0]) : '');
-  return (r.seek ? 'Light ' + rng(r.seek) : 'Evening light') + (r.dim ? ', low light until ' + hm(r.dim[1]) : '');
+  if (r.seekMissed) return 'Keep light low today';
+  if (p.dir > 0 && r.avoidUntil != null && r.seek) return 'Sunglasses until ' + hm(r.avoidUntil) + ', then light ' + rng(r.seek);
+  if (!r.seek && !r.dim) return 'No light timing needed';
+  const parts = [];
+  if (r.seek) parts.push('Light ' + rng(r.seek));
+  if (r.dim) parts.push(p.dir > 0 ? 'dim after ' + hm(r.dim[0]) : 'low light until ' + hm(r.dim[1]));
+  const s = parts.join(', ');
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function dayCard(r, p, opts) {
@@ -309,7 +350,7 @@ let showPast = false;
 function renderPlan() {
   const p = buildPlan();
   if (p.error) {
-    fill($('planHead'), h('div', { class: 'card' }, h('p', null, p.error), h('button', { type: 'button', class: 'primary wide', id: 'fixIt' }, 'Go to setup')));
+    fill($('planHead'), h('div', { class: 'card' }, h('p', null, p.error.charAt(0).toUpperCase() + p.error.slice(1)), h('button', { type: 'button', class: 'primary wide', id: 'fixIt' }, 'Go to setup')));
     $('fixIt').addEventListener('click', () => go('setup'));
     fill($('planToday')); fill($('planDays'));
     return;
@@ -327,7 +368,7 @@ function renderPlan() {
     h('div', { class: 'facts' },
       fact(Math.round(p.T * 10) / 10 + ' h', word),
       fact(start ? fmtDn(start.dn).replace(/^\w+, /, '') : 'Now', 'start'),
-      fact(p.adaptedDn ? fmtDn(p.adaptedDn).replace(/^\w+, /, '') : '-', 'adapted')),
+      fact(p.adaptedDn ? fmtDn(p.adaptedDn).replace(/^\w+, /, '') : '-', p.local ? 'body clock caught up' : 'adapted')),
     p.warn.map(w => h('p', { class: 'msg' }, w)));
 
   const nowUtc = Date.now();
